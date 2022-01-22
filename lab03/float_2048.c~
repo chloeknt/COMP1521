@@ -1,0 +1,184 @@
+// Multiply a float by 2048 using bit operations only
+
+#include <stdio.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <assert.h>
+
+#include "floats.h"
+#define N_BITS 32 
+
+void reverse_array(int num[], int start, int end);
+
+// float_2048 is given the bits of a float f as a uint32_t
+// it uses bit operations and + to calculate f * 2048
+// and returns the bits of this value as a uint32_t
+//
+// if the result is too large to be represented as a float +inf or -inf is returned
+//
+// if f is +0, -0, +inf or -inf, or Nan it is returned unchanged
+//
+// float_2048 assumes f is not a denormal number
+//
+uint32_t float_2048(uint32_t f) {
+    float_components_t c = float_bits(f);
+    union overlay value;
+    int nan = is_nan(c);
+    int inf = is_positive_infinity(c);
+    int neg_inf = is_negative_infinity(c);
+    int zero = is_zero(c);
+    //If any of the above returns one 
+    if (nan == 1 || inf == 1 || neg_inf == 1 || zero == 1) {
+        return f;
+    //Multiply 
+    } else if (c.sign == 0 && c.exponent > 0xf4) {
+       value.f = 1.0/0.0;
+       return value.u;
+    } else if (c.sign == 1 && c.exponent > 0xf4) {
+       value.f = -1.0/0.0;
+       return value.u;
+    } else {
+        c.exponent = c.exponent + 11;
+        int num[N_BITS] = {0};
+        int number = 0;
+        for (int i = N_BITS - 1; i > 8; i--) {
+        number = c.fraction >> (N_BITS - 1 - i);
+            if (number & 1) {
+                num[i] = 1;
+            } else {
+                num[i] = 0;
+            }
+        }
+        for (int i = 8; i > 0; i--) {
+        number = c.exponent >> (8 - i);
+            if (number & 1) {
+                num[i] = 1;
+            } else {
+                num[i] = 0;
+            }
+        }
+        if (c.sign == 0) {
+            num[0] = 0;
+        } else {
+            num[0] = 1;
+        }
+        uint32_t final_number = 0;
+        uint32_t  mask = 1;
+        for (int i = N_BITS - 1; i >= 0; i--) {
+            if (num[i] == 1) {
+                final_number = final_number | mask;
+            } 
+            if (i != 0) {
+                mask = mask << 1;
+            }
+        }
+        return final_number;
+    }
+}
+
+void reverse_array(int num[], int start, int end) {
+    int temp;
+    while (start < end) {
+        temp = num[start];  
+        num[start] = num[end];
+        num[end] = temp;
+        start++;
+        end--;
+    }  
+}   
+
+// separate out the 3 components of a float
+float_components_t float_bits(uint32_t f) {
+    //Convert the int into an array
+    int num[N_BITS] = {0};
+    int number = 0;
+    for (int i = N_BITS; i > 0; i--) {
+        number = f >> (i - 1);
+        if (number & 1) {
+            num[N_BITS - i] = 1;
+        } else {
+            num[N_BITS - i] = 0;
+        }
+    }
+    //Initialise a struct to store values 
+    float_components_t *components = malloc(sizeof(float_components_t));
+    //Sign
+    //If [0] is 1 = neg 0 = pos
+    components->sign = num[0];
+    //Exponent
+    //[1] to [8], convert to int from binary
+    number = 0;
+    int mask = 1;
+    for (int i = N_BITS - 24; i > 0; i--) {
+        if (num[i] == 1) {
+            number = number | mask;
+        } 
+        if (i != 0) {
+            mask = mask << 1;
+        }
+    }
+    components->exponent = number;
+    //Fraction
+    //[9] to [31]
+    number = 0;
+    mask = 1;
+    for (int i = N_BITS - 1; i > 8; i--) {
+        if (num[i] == 1) {
+            number = number | mask;
+        } 
+        if (i != 0) {
+            mask = mask << 1;
+        }
+    }
+    components->fraction = number;
+    return *components;
+}
+
+// given the 3 components of a float
+// return 1 if it is NaN, 0 otherwise
+int is_nan(float_components_t f) {
+    float_components_t c = f;
+    if (c.sign == 0 && c.exponent == 255 && c.fraction == 4194304) {
+        return 1;
+    //If it isn't NaN
+    } else {
+        return 0;
+    }
+}
+
+// given the 3 components of a float
+// return 1 if it is inf, 0 otherwise
+int is_positive_infinity(float_components_t f) {
+    float_components_t c = f;
+    if (c.sign == 0 && c.exponent == 255 && c.fraction == 0) {
+        return 1;
+    //If it isn't +inf
+    } else {
+        return 0;
+    }
+}
+
+// given the 3 components of a float
+// return 1 if it is -inf, 0 otherwise
+int is_negative_infinity(float_components_t f) {
+    float_components_t c = f;
+    if (c.sign == 1 && c.exponent == 255 && c.fraction == 0) {
+        return 1;
+    //If it isn't -inf
+    } else {
+        return 0;
+    }
+}
+
+// given the 3 components of a float
+// return 1 if it is 0 or -0, 0 otherwise
+int is_zero(float_components_t f) {
+    float_components_t c = f;
+    if (c.exponent == 0 && c.fraction == 0) {
+        return 1;
+    //If it isn't 0 or -0
+    } else {
+        return 0;
+    }
+}
+

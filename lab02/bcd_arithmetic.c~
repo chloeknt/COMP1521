@@ -1,0 +1,461 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <assert.h>
+#include <ctype.h>
+#include <string.h>
+
+//
+// Store an arbitray length Binary Coded Decimal number
+// bcd points to an array of size n_bcd
+// each array element contains 1 decimal digit
+//
+
+typedef struct big_bcd {
+    unsigned char *bcd;
+    int n_bcd;
+} big_bcd_t;
+
+
+void bcd_print(big_bcd_t *number);
+void bcd_free(big_bcd_t *number);
+big_bcd_t *bcd_from_string(char *string);
+
+big_bcd_t *expression(char ***tokens);
+big_bcd_t *term(char ***tokens);
+
+int main(int argc, char *argv[]) {
+    char **tokens = argv + 1;
+
+    // tokens points in turn to each of the elements of argv
+    // as the expression is evaluated.
+
+    if (*tokens) {
+        big_bcd_t *result = expression(&tokens);
+        bcd_print(result);
+        printf("\n");
+        bcd_free(result);
+    }
+
+    return 0;
+}
+
+
+// DO NOT CHANGE THE CODE ABOVE HERE
+
+
+big_bcd_t *bcd_add(big_bcd_t *x, big_bcd_t *y) {
+//Determine the lengths of the arrays (ignore null terminator)
+	//Lengths are currently x->n_bcd and y->n_bcd
+	//Pick the longest one 
+	int max = 0;
+	int min = 0;
+	if (x->n_bcd >= y->n_bcd) {
+	    max = x->n_bcd;
+	    min = y->n_bcd;
+	} else {
+	    max = y->n_bcd; 
+	    min = x->n_bcd;
+	}
+    //Make two new arrays of max length
+    big_bcd_t *number1 = malloc(sizeof *number1);
+    number1->n_bcd = max;
+    number1->bcd = malloc(max * sizeof number1->bcd[0]);
+    
+    big_bcd_t *number2 = malloc(sizeof *number2);
+    number2->n_bcd = max;
+    number2->bcd = malloc(max * sizeof number2->bcd[0]);
+    //Fill the array with the shorter number with zeros on the left
+    //OLD: 321
+    //     032
+    //REP: 123
+    //     023 
+    //If the minimum is string y
+    if (min == y->n_bcd) {
+        int j = 0;
+        for (int i = 0; i < max; i++) { 
+            number1->bcd[(max - 1) - i] = x->bcd[i];
+            if (i < (max - min)) {
+                number2->bcd[i] = 0;
+            } else {
+                number2->bcd[i] = y->bcd[(min - 1) - j];
+                j++;
+            }
+        }
+        //If the minimum is string x 
+    } else {
+        int j = 0;
+        for (int i = 0; i < max; i++) { 
+            number1->bcd[(max - 1) - i] = y->bcd[i];
+            if (i < (max - min)) {
+                number2->bcd[i] = 0;
+            } else {
+                number2->bcd[i] = x->bcd[(min - 1) - j];
+                j++;
+            }
+        }
+    }
+    //Now we have two strings of the same length
+	//Start filling in the values, storing the carry in a temp
+	int carry = 0;
+	int value = 0;
+	//Make a new final array    
+	big_bcd_t *final_number = malloc(sizeof *final_number);
+    final_number->n_bcd = max;
+    final_number->bcd = malloc(max * sizeof final_number->bcd[0]);
+	for (int i = max - 1; i >= 0; i--) {
+	    value = number1->bcd[i] + number2->bcd[i] + carry;
+	    if (value > 9) {
+	        carry = value / 10;
+	        final_number->bcd[(max - 1) - i] = value % 10;
+	    } else {
+	        carry = 0;
+	        final_number->bcd[(max - 1) - i] = value;
+	    }
+	    value = 0;
+	}
+	//When the strings are completely computed, realloc for carry over 
+	if (carry > 0) {
+	    final_number->bcd = realloc(final_number->bcd, (max + 1) * 
+	    sizeof(final_number->bcd[0]));
+	    final_number->n_bcd++; 
+	    final_number->bcd[max] = carry;
+	}
+    //Return the array
+	return final_number;
+}
+
+big_bcd_t *bcd_subtract(big_bcd_t *x, big_bcd_t *y) {
+//Determine the lengths of the arrays (ignore null terminator)
+	//Lengths are currently x->n_bcd and y->n_bcd
+	//Pick the longest one 
+	int max = 0;
+	int min = 0;
+	if (x->n_bcd >= y->n_bcd) {
+	    max = x->n_bcd;
+	    min = y->n_bcd;
+	} else {
+	    max = y->n_bcd; 
+	    min = x->n_bcd;
+	}
+    //Make two new arrays of max length
+    big_bcd_t *number1 = malloc(sizeof *number1);
+    number1->n_bcd = max;
+    number1->bcd = malloc(max * sizeof number1->bcd[0]);
+    
+    big_bcd_t *number2 = malloc(sizeof *number2);
+    number2->n_bcd = max;
+    number2->bcd = malloc(max * sizeof number2->bcd[0]);
+    //Fill the array with the shorter number with zeros on the left
+    //OLD: 321
+    //     032
+    //REP: 123
+    //     023 
+    //If the minimum is string y (in this case string x will always be longer)
+    //Because the result cannot be negative
+    if (min == y->n_bcd) {
+        int j = 0;
+        for (int i = 0; i < max; i++) { 
+            number1->bcd[(max - 1) - i] = x->bcd[i];
+            if (i < (max - min)) {
+                number2->bcd[i] = 0;
+            } else {
+                number2->bcd[i] = y->bcd[(min - 1) - j];
+                j++;
+            }
+        }
+    }
+    //Now we have two strings of the same length
+	//Start filling in the values, storing the carry in a temp
+	int value = 0;
+	//Make a new final array    
+	big_bcd_t *final_number = malloc(sizeof *final_number);
+    final_number->n_bcd = max;
+    final_number->bcd = malloc(max * sizeof final_number->bcd[0]);
+	for (int i = max - 1; i >= 0; i--) {
+	    //If the top int is smaller than the bottom
+	    if (number1->bcd[i] < number2->bcd[i]) {
+	        int j = 1;
+	        while (number1->bcd[i - j] == 0) {
+	            number1->bcd[i - j] = 9;
+	            j++;
+	        } 
+	        number1->bcd[i - j] = number1->bcd[i - j] - 1;
+	        value = (10 + number1->bcd[i]) - number2->bcd[i];
+	    } else {
+	        value = number1->bcd[i] - number2->bcd[i];
+	    }
+	    final_number->bcd[(max - 1) - i] = value;
+	}
+	//When the strings are completely computed, realloc for carry over 
+	int i = max - 1;
+	while (i >= 0 && final_number->bcd[i] == 0) {
+	    final_number->bcd = realloc(final_number->bcd, (max - 1) * 
+	    sizeof(final_number->bcd[0]));
+	    final_number->n_bcd--; 
+	    i--;
+	}
+    //Return the array
+	return final_number;
+}
+
+big_bcd_t *bcd_multiply(big_bcd_t *x, big_bcd_t *y) {
+    //Determine the lengths of the arrays (ignore null terminator)
+	//Lengths are currently x->n_bcd and y->n_bcd
+	//Pick the longest one 
+	int max = 0;
+	int min = 0;
+	if (x->n_bcd >= y->n_bcd) {
+	    max = x->n_bcd;
+	    min = y->n_bcd;
+	} else {
+	    max = y->n_bcd; 
+	    min = x->n_bcd;
+	}
+    //Make two new arrays of max length
+    big_bcd_t *number1 = malloc(sizeof *number1);
+    number1->n_bcd = max;
+    number1->bcd = malloc(max * sizeof number1->bcd[0]);
+    
+    big_bcd_t *number2 = malloc(sizeof *number2);
+    number2->n_bcd = max;
+    number2->bcd = malloc(max * sizeof number2->bcd[0]);
+    //Fill the array with the shorter number with zeros on the left
+    //OLD: 321
+    //     032
+    //REP: 123
+    //     023 
+    //If the minimum is string y
+    if (min == y->n_bcd) {
+        int j = 0;
+        for (int i = 0; i < max; i++) { 
+            number1->bcd[(max - 1) - i] = x->bcd[i];
+            if (i < (max - min)) {
+                number2->bcd[i] = 0;
+            } else {
+                number2->bcd[i] = y->bcd[(min - 1) - j];
+                j++;
+            }
+        }
+        //If the minimum is string x 
+    } else {
+        int j = 0;
+        for (int i = 0; i < max; i++) { 
+            number1->bcd[(max - 1) - i] = y->bcd[i];
+            if (i < (max - min)) {
+                number2->bcd[i] = 0;
+            } else {
+                number2->bcd[i] = x->bcd[(min - 1) - j];
+                j++;
+            }
+        }
+    }
+    //Now we have two strings of the same length
+	//Start filling in the values, storing the carry in a temp
+	int carry = 0;
+	int value = 0;
+	//Make two new final arrays    
+	big_bcd_t *final_num1 = malloc(sizeof *final_num1);
+    final_num1->n_bcd = max;
+    final_num1->bcd = malloc(max * sizeof final_num1->bcd[0]);
+    big_bcd_t *final_num2 = malloc(sizeof *final_num2);
+    final_num2->n_bcd = max;
+    final_num2->bcd = malloc(max * sizeof final_num2->bcd[0]);
+    //Start with the RHS of num2 and multiply with all of num1
+    int c = 0;
+    for (int i = max - 1; i >= 0 ; i--) {
+        value = number2->bcd[(max - 1) - c] * number1->bcd[i] + carry;
+        if (value > 9) {
+            carry = value / 10;
+            final_num1->bcd[(max - 1) - i] = value % 10;
+        } else {
+        	carry = 0;
+	        final_num1->bcd[(max - 1) - i] = value;
+        }
+        value = 0;
+    }
+    //When the strings are completely computed, realloc for carry over 
+	if (carry > 0) {
+	    final_num1->bcd = realloc(final_num1->bcd, (max + 1) * 
+	    sizeof(final_num1->bcd[0]));
+	    final_num1->n_bcd++; 
+	    final_num1->bcd[max] = carry;
+	}
+	int rounds = 0;
+	int indent = max - 1;
+	while (min > 1 && rounds < min - 1) {
+    //Then loop for RHS - i of num2 and multiply with all of num1
+        for (int i = 0; i <= rounds; i++) {
+            final_num2->bcd[i] = 0;
+        }
+        final_num2->bcd = realloc(final_num2->bcd, (final_num2->n_bcd + 1) * 
+        sizeof(final_num2->bcd[0]));
+        final_num2->n_bcd++; 
+        for (int i = max - 1; i >= 0; i--) {
+            value = number2->bcd[(max - 1) - rounds] * number1->bcd[i] + carry;
+            if (value > 9) {
+                 carry = value / 10;
+                 final_num2->bcd[(rounds + 1) + (max - 1) - i] = value % 10;
+            } else {
+                carry = 0;
+                final_num2->bcd[(rounds + 1) + (max - 1) - i] = value;
+            } 
+            value = 0;
+        }
+        //When the strings are completely computed, realloc for carry over 
+        if (carry > 0) {
+            final_num2->bcd = realloc(final_num2->bcd, (max + 1) * 
+            sizeof(final_num2->bcd[0]));
+            final_num2->n_bcd++; 
+            final_num2->bcd[max] = carry;
+        }
+        //Add function
+        final_num1 = bcd_add(final_num1, final_num2);
+        rounds++;
+        indent--;
+    }
+    //Return the array
+	return final_num1;
+}
+
+big_bcd_t *bcd_divide(big_bcd_t *x, big_bcd_t *y) {
+    //Determine the lengths of the arrays (ignore null terminator)
+	//Lengths are currently x->n_bcd and y->n_bcd
+	//If the first is shorter, the division = 0 and if they are identical, 
+	//the division = 1
+	if (x->n_bcd > y->n_bcd) {
+        
+	} else if (x->n_bcd == y->n_bcd) {
+	    int identical = 1;
+	    for (int i = 0; i < x->n_bcd; i++) {
+	        if (x->bcd[i] != y->bcd[i]) {
+	            identical = 0;
+	        }
+	        if (identical == 1) {
+                big_bcd_t *final_num1 = malloc(sizeof *final_num1);
+                final_num1->n_bcd = 1;
+                final_num1->bcd = malloc(sizeof final_num1->bcd[0]);
+                final_num1->bcd[0] = 1;
+                return final_num1;
+            }
+        }
+	} else {
+	    big_bcd_t *final_num1 = malloc(sizeof *final_num1);
+        final_num1->n_bcd = 1;
+        final_num1->bcd = malloc(sizeof final_num1->bcd[0]);
+        final_num1->bcd[0] = 0;
+        return final_num1;
+	}
+    big_bcd_t *final_num1 = malloc(sizeof *final_num1);
+    final_num1->n_bcd = 1;
+    final_num1->bcd = malloc(sizeof final_num1->bcd[0]);
+    final_num1->bcd[0] = 1;   
+    //Return the array
+	return final_num1;
+}
+
+
+// DO NOT CHANGE THE CODE BELOW HERE
+
+
+// print a big_bcd_t number
+void bcd_print(big_bcd_t *number) {
+    // if you get an error here your bcd_arithmetic is returning an invalid big_bcd_t
+    assert(number->n_bcd > 0);
+    for (int i = number->n_bcd - 1; i >= 0; i--) {
+        putchar(number->bcd[i] + '0');
+    }
+}
+
+
+// DO NOT CHANGE THE CODE BELOW HERE
+
+// free storage for big_bcd_t number
+void bcd_free(big_bcd_t *number) {
+    // if you get an error here your bcd_arithmetic is returning an invalid big_bcd_t
+    // or it is calling free for the numbers it is given
+    free(number->bcd);
+    free(number);
+}
+
+// convert a string to a big_bcd_t number
+big_bcd_t *bcd_from_string(char *string) {
+    big_bcd_t *number = malloc(sizeof *number);
+    assert(number);
+
+    int n_digits = strlen(string);
+    assert(n_digits);
+    number->n_bcd = n_digits;
+
+    number->bcd = malloc(n_digits * sizeof number->bcd[0]);
+    assert(number->bcd);
+
+    for (int i = 0; i < n_digits; i++) {
+        int digit = string[n_digits - i - 1];
+        assert(isdigit(digit));
+        number->bcd[i] = digit - '0';
+    }
+
+    return number;
+}
+
+
+// simple recursive descent evaluator for  big_bcd_t expressions
+big_bcd_t *expression(char ***tokens) {
+
+    big_bcd_t *left = term(tokens);
+    assert(left);
+
+    if (!**tokens|| (***tokens != '+' && ***tokens != '-')) {
+        return left;
+    }
+
+    char *operator = **tokens;
+    (*tokens)++;
+
+    big_bcd_t *right = expression(tokens);
+    assert(right);
+
+    big_bcd_t *result;
+    if (operator[0] == '+') {
+        result = bcd_add(left, right);
+    } else {
+        assert(operator[0] == '-');
+        result = bcd_subtract(left, right);
+    }
+    assert(result);
+
+    bcd_free(left);
+    bcd_free(right);
+    return result;
+}
+
+
+// evaluate a term of a big_bcd_t expression
+big_bcd_t *term(char ***tokens) {
+
+    big_bcd_t *left = bcd_from_string(**tokens);
+    assert(left);
+    (*tokens)++;
+
+    if (!**tokens || (***tokens != '*' && ***tokens != '/')) {
+        return left;
+    }
+
+    char *operator = **tokens;
+    (*tokens)++;
+
+    big_bcd_t *right = term(tokens);
+    assert(right);
+
+    big_bcd_t *result;
+    if (operator[0] == '*') {
+        result = bcd_multiply(left, right);
+    } else {
+        result = bcd_divide(left, right);
+    }
+    assert(result);
+
+    bcd_free(left);
+    bcd_free(right);
+    return result;
+}
