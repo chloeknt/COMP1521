@@ -1,0 +1,29 @@
+#include <stdio.h>
+#include <stdlib.h>
+
+int main(int argc, char *argv[]) {
+    // Check for correct arguments
+    if (argc < 3) {
+        printf("Wrong number of arguments\n");
+        return -1;
+    } 
+    
+    // Make a new file 
+    FILE *output_stream = fopen(argv[1], "w");
+    if (output_stream == NULL) {
+        perror(argv[1]);
+        return 1;
+    }
+    
+    // Write to the file 
+    int i = 2;
+    while (i < argc) {
+        int c = atoi(argv[i]);
+        fputc(c, output_stream);
+        i++;
+    }
+
+    fclose(output_stream);
+
+    return 0;
+}
