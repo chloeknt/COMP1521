@@ -1,0 +1,26 @@
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+
+#define N_BITS 8
+
+int main(int argc, char *argv[]) {
+    FILE *fp = fopen(argv[1], "r");
+    int count = 0;
+    char c;
+    while ((c = fgetc(fp)) != EOF) {
+        int value = c;
+        int number = 0;
+        for (int i = N_BITS; i > 0; i--) {
+            number = value >> (i - 1);
+            if (number & 1) {
+                count++;
+            } 
+        }
+        
+    }
+    
+    printf("%s has %d bits set\n", argv[1], count);
+
+    return 0;
+}

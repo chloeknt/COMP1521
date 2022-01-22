@@ -1,0 +1,30 @@
+// COMP1521 20T3 final exam Q2 starter code
+
+#include <stdlib.h>
+#include <stdint.h>
+#include <assert.h>
+
+#define N_BITS 32
+
+// given a uint32_t,
+// return 1 iff the least significant bit
+// is equal to the most significant bit
+// return 0 otherwise
+int final_q2(uint32_t value) {
+    int number = 0;
+    int bits[N_BITS];
+    for (int i = N_BITS; i > 0; i--) {
+        number = value >> (i - 1);
+        if (number & 1) {
+            bits[N_BITS - i] = 1;
+        } else {
+            bits[N_BITS - i] = 0;
+        }
+    }
+    
+    if (bits[0] == bits[N_BITS - 1]) {
+        return 1;
+    }
+
+    return 0;    // REPLACE ME WITH YOUR CODE
+}

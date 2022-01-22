@@ -1,0 +1,29 @@
+#include <stdlib.h>
+#include <stdio.h>
+
+int main(int argc, char *argv[]) {
+    char *var_one = getenv(argv[1]);
+    char *var_two = getenv(argv[2]);
+    
+    int one;
+    int two;
+    if (var_one == NULL) {
+        one = 42;
+    } else {
+        one = atoi(var_one);
+    }
+    
+    if (var_two == NULL) {
+        two = 42;
+    } else {
+        two = atoi(var_two);
+    }
+    
+    if (one > two - 10 && one < two + 10) {
+        printf("1\n");
+        return 0;
+    } 
+    
+    printf("0\n");
+    return 0;
+}
