@@ -1,0 +1,45 @@
+// COMP1521 21T2 ... final exam, question 4
+
+#include <stdlib.h>
+
+long
+mul (long a, long b_)
+{
+	unsigned long b = b_;
+
+	// NOTE: Maximum 5 operations allowed
+	//       for each multiplication
+	// NOTE: Permitted operations:
+	//       [x + y, x - y, -x, x << y]
+
+	if (a == 7) {
+		// Two operations:
+		//        1     2
+		return (b << 3) - b;
+	}
+
+	if (a == 17) {
+	    // 16 (2^4)b + b	    
+		return (b << 4) + b; 
+	}
+
+	if (a == -3) {
+	    // 2 (2^1) + b (mul -1)
+	    // 2^0 - 2^2
+		//return (b << 1) + b;
+		return b - (b << 2);
+	}
+
+	if (a == 60) {
+	    // 64 (2^6)b - 4b
+		return (b << 6) - (b << 2); 
+	}
+
+	if (a == -112) {
+	    // 121 (11^2) + 9 (3^2) (mul -1)
+		return (b << 4) - (b << 7); 
+	}
+
+	// Invalid inputs will simply abort.
+	abort();
+}

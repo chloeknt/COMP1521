@@ -1,0 +1,26 @@
+// COMP1521 21T2 ... final exam, question 0
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+
+#define N_BITS 32
+
+int
+count_leading_zeroes (uint32_t x)
+{
+    // Count bits up to first one-bit
+    int num = 0;
+    uint32_t number = 0;
+    for (int i = N_BITS; i > 0; i--) {
+        number = x >> (i - 1);
+        if (number & 1) {
+            return num;
+        } else {
+            num++;
+        }
+    }
+
+    return num;
+}
+
