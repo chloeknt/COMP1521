@@ -1,0 +1,58 @@
+#include <stdio.h>
+#include <stdlib.h>
+
+int main(int argc, char *argv[]) {
+
+    // Check for correct arguments
+    if (argc != 3) {
+        printf("Wrong number of arguments\n");
+        return 1;
+    } 
+    
+    // Open and read
+    FILE *stream_one = fopen(argv[1], "r");
+    if (stream_one == NULL) {
+        perror(argv[1]);
+        return 1;
+    }
+    
+    FILE *stream_two = fopen(argv[2], "r");
+    if (stream_two == NULL) {
+        perror(argv[2]);
+        return 1;
+    }
+
+    // Byte loop
+    char c1 = getc(stream_one);
+    char c2 = getc(stream_two);
+    int i = 0;
+    while (c1 != EOF && c2 != EOF) {
+        if (c1 != c2) {
+            printf("Files differ at byte %d\n", i);
+            fclose(stream_one);
+            fclose(stream_two);
+            return 0;
+        } 
+        i++;
+    }
+    
+    
+    if (c1 != EOF && c2 == EOF) {
+        printf("EOF on %s\n", argv[2]);
+        fclose(stream_one);
+        fclose(stream_two);
+        return 0;
+    } else if (c2 != EOF && c1 == EOF) {
+        printf("EOF on %s\n", argv[1]);
+        fclose(stream_one);
+        fclose(stream_two);
+        return 0;
+    }
+    
+    printf("Files are identical\n");
+
+    fclose(stream_one);
+    fclose(stream_two);
+
+    return 0;
+}

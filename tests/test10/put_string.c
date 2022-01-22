@@ -1,0 +1,18 @@
+#include <stdio.h>
+
+#include "put_string.h"
+
+// print s to stdout with a new line appended using fputc (only)
+
+void put_string(char *s) {
+    char c;
+    int i = 0;
+    while (s[i] != '\0') {
+        c = s[i];
+        fputc(c, stdout);
+        i++;
+    }
+    fputc('\n', stdout);
+   
+    return;
+}

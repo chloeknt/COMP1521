@@ -1,0 +1,36 @@
+#include "sign_flip.h"
+
+#define N_BITS 32 
+
+// given the 32 bits of a float return it with its sign flipped
+uint32_t sign_flip(uint32_t f) {
+    //Convert the int into an array
+    int num[N_BITS] = {0};
+    uint32_t number = 0;
+    for (int i = N_BITS; i > 0; i--) {
+        number = f >> (i - 1);
+        if (number & 1) {
+            num[N_BITS - i] = 1;
+        } else {
+            num[N_BITS - i] = 0;
+        }
+    }
+    //Change the sign
+    if (num[0] == 0) {
+        num[0] = 1;
+    } else {
+        num[0] = 0;
+    }
+    //Convert back 
+    number = 0;
+    uint32_t mask = 1;
+    for (int i = N_BITS - 1; i >= 0; i--) {
+        if (num[i] == 1) {
+            number = number | mask;
+        } 
+        if (i != 0) {
+            mask = mask << 1;
+        }
+    }
+    return number;
+}
