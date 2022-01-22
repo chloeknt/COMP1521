@@ -1,0 +1,30 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+
+int main (int argc, char *argv[]) {
+// Get history
+    char *home = getenv("HOME");
+    char diary[strlen(home) + 8];
+    strcpy(diary, home);
+    strcat(diary, "/.diary");
+    
+    // Open and append to a file 
+    FILE *stream = fopen(diary, "a+");
+    if (stream == NULL) {
+        perror(diary);
+        return 1;
+    }
+    
+    int i = 1;
+    while (i + 1 < argc) {
+        fprintf(stream, "%s ", argv[i]);
+        i++;
+    }
+    fprintf(stream, "%s\n", argv[i]);
+    
+    fclose(stream);
+    
+    return 0;    
+}
