@@ -1,0 +1,808 @@
+////////////////////////////////////////////////////////////////////////
+// COMP1521 21t2 -- Assignment 2 -- shuck, A Simple Shell
+// <https://www.cse.unsw.edu.au/~cs1521/21T2/assignments/ass2/index.html>
+//
+// Written by Chloe Toh (z5362296) on 21/07/2021.
+//
+// 2021-07-12	Team COMP1521 <cs1521@cse.unsw.edu.au>
+//
+
+#include <sys/types.h>
+
+#include <sys/stat.h>
+#include <sys/wait.h>
+
+#include <assert.h>
+#include <fcntl.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <spawn.h>
+#include <glob.h>
+#include <sys/stat.h>
+// [[ TODO: put any extra `#include's here ]]
+
+
+// [[ TODO: put any `#define's here ]]
+#define PATH_MAX 2048
+
+//
+// Interactive prompt:
+//     The default prompt displayed in `interactive' mode --- when both
+//     standard input and standard output are connected to a TTY device.
+//
+static const char *const INTERACTIVE_PROMPT = "shuck& ";
+
+//
+// Default path:
+//     If no `$PATH' variable is set in Shuck's environment, we fall
+//     back to these directories as the `$PATH'.
+//
+static const char *const DEFAULT_PATH = "/bin:/usr/bin";
+
+//
+// Default history shown:
+//     The number of history items shown by default; overridden by the
+//     first argument to the `history' builtin command.
+//
+static const int DEFAULT_HISTORY_SHOWN = 10;
+
+//
+// Input line length:
+//     The length of the longest line of input we can read.
+//
+static const size_t MAX_LINE_CHARS = 1024;
+
+//
+// Special characters:
+//     Characters that `tokenize' will return as words by themselves.
+//
+static const char *const SPECIAL_CHARS = "!><|";
+
+//
+// Word separators:
+//     Characters that `tokenize' will use to delimit words.
+//
+static const char *const WORD_SEPARATORS = " \t\r\n";
+
+// [[ TODO: put any extra constants here ]]
+
+//int *history[MAX_LINE_CHARS];
+
+// [[ TODO: put any type definitions (i.e., `typedef', `struct', etc.) here ]]
+
+
+static void execute_command(char **words, char **path, char **environment);
+static void do_exit(char **words);
+static int is_executable(char *pathname);
+static char **tokenize(char *s, char *separators, char *special_chars);
+static void free_tokens(char **tokens);
+static void cd(char **words);
+static void pwd(char **words);
+static bool is_command(char **words, char **path, char *pathname);
+static void do_command(char **words, char *pathname);
+static void add_history(char **words);
+static void print_history(int n);
+static void execute_history(int n);
+static char **glob_check(char **words);
+static void input_file(char **words, char *pathname, int file);
+static void output_file(char **words, char *pathname, int file, int mode);
+static bool is_file(char *word);
+// [[ TODO: put any extra function prototypes here ]]
+
+
+int main (void)
+{
+    // Ensure `stdout' is line-buffered for autotesting.
+    setlinebuf(stdout);
+
+    // Environment variables are pointed to by `environ', an array of
+    // strings terminated by a NULL value -- something like:
+    //     { "VAR1=value", "VAR2=value", NULL }
+    extern char **environ;
+
+    // Grab the `PATH' environment variable for our path.
+    // If it isn't set, use the default path defined above.
+    char *pathp;
+    if ((pathp = getenv("PATH")) == NULL) {
+        pathp = DEFAULT_PATH;
+    }
+    char **path = tokenize(pathp, ":", "");
+
+    // Should this shell be interactive?
+    bool interactive = isatty(STDIN_FILENO) && isatty(STDOUT_FILENO);
+
+    // Main loop: print prompt, read line, execute command
+    while (1) {
+        // If `stdout' is a terminal (i.e., we're an interactive shell),
+        // print a prompt before reading a line of input.
+        if (interactive) {
+            fputs(INTERACTIVE_PROMPT, stdout);
+            fflush(stdout);
+        }
+
+        char line[MAX_LINE_CHARS];
+        if (fgets(line, MAX_LINE_CHARS, stdin) == NULL)
+            break;
+
+        // Tokenise and execute the input line.
+        char **command_words = tokenize(line, WORD_SEPARATORS, SPECIAL_CHARS);
+        execute_command(command_words, path, environ);
+        free_tokens(command_words);
+    }
+
+    free_tokens(path);
+    return 0;
+}
+
+
+//
+// Execute a command, and wait until it finishes.
+//
+//  * `words': a NULL-terminated array of words from the input command line
+//  * `path': a NULL-terminated array of directories to search in;
+//  * `environment': a NULL-terminated array of environment variables.
+//
+static void execute_command(char **words, char **path, char **environment)
+{
+    assert(words != NULL);
+    assert(path != NULL);
+    assert(environment != NULL);
+
+    char *program = words[0];
+
+    if (program == NULL) {
+        // nothing to do
+        return;
+    }
+
+    if (strcmp(program, "exit") == 0) {
+        do_exit(words);
+        // `do_exit' will only return if there was an error.
+        return;
+    }
+    
+    // Check for globbing
+    words = glob_check(words);
+
+    // If cd
+    if (strcmp(words[0], "cd") == 0) {
+        cd(words);
+        return;
+    }
+    // If pwd
+    if (strcmp(words[0], "pwd") == 0) {
+        pwd(words);
+        return;
+    }
+    
+    // Check if the command is executable
+    char pathname[PATH_MAX];
+    bool command = is_command(words, path, pathname);
+    
+    // Get last 'word'
+    int last = 0;
+    while (words[last + 1] != NULL) {
+        last++;
+    }
+    
+    // History commands
+    if (strcmp(words[0], "history") == 0) {
+        if (words[1] == NULL) {
+            print_history(DEFAULT_HISTORY_SHOWN);
+        } else {
+            print_history(atoi(words[1]));
+        }
+        add_history(words);
+        return;
+    } else if (strcmp(words[0], "!") == 0) {
+        if (words[1] == NULL) {
+            execute_history(-1);
+        } else {
+            execute_history(atoi(words[1]));
+        }
+        return;
+        // Not any of the above and unexecutable file
+    } else if (command == false) {
+        if (strcmp(words[0], "<") == 0) {
+            printf("%s: command not found\n", words[2]);
+        } else {
+            printf("%s: command not found\n", words[0]);
+        }
+        return;
+        // File input/output redirection commands
+    } else if (words[1] != NULL && strcmp(words[0], "<") == 0) {
+        input_file(words, pathname, 1);
+        return; 
+    } else if (last > 2 && strcmp(words[last - 2], ">") == 0 && 
+    strcmp(words[last - 1], ">") == 0) {
+        output_file(words, pathname, last, 3);
+        return;
+    } else if (last > 1 && strcmp(words[last - 1], ">") == 0) {
+        output_file(words, pathname, last, 2);
+        return;
+        // Executable file 
+    } else {
+        do_command(words, pathname);
+        return;
+    }
+    
+    if (strrchr(program, '/') == NULL) {
+        fprintf(stderr, "--- UNIMPLEMENTED: searching for a program to run\n");
+    }
+
+    if (is_executable(program)) {
+        fprintf(stderr, "--- UNIMPLEMENTED: running a program\n");
+    } else {
+        fprintf(stderr, "--- UNIMPLEMENTED: error when we can't run anything\n");
+    }
+}
+
+static void cd(char **words) {
+    // If there are no extra words, we go to the HOME env var
+    if (words[1] == NULL) {
+        char *value = getenv("HOME");
+        if (chdir(value) != 0) {
+            perror("chdir");
+            return;
+        }
+    } else {
+        // If there are words, go there
+        if (chdir(words[1]) != 0) {
+            perror("chdir");
+            return;
+        }
+    }
+    // Add command to history
+    add_history(words);
+    return;
+}
+
+static void pwd(char **words) {
+    char pathname[PATH_MAX];
+    // Getting the current working directory 
+    if (getcwd(pathname, sizeof pathname) == NULL) {
+        perror("getcwd");
+        return;
+    }
+    printf("current directory is '%s'\n", pathname);
+        
+    // Add to history 
+    add_history(words);
+    return;
+}
+
+static bool is_command(char **words, char **path, char *pathname) {
+    int i = 0;
+    while (path[i] != NULL) {
+        strcpy(pathname, path[i]);
+        strcat(pathname, "/");
+        if (strcmp(words[0], "<") == 0) {
+            strcat(pathname, words[2]);
+        } else {
+            strcat(pathname, words[0]);
+        }
+        if (is_executable(pathname)) {
+            return true;
+        }
+        i++;
+    }
+    return false;
+}
+
+static bool is_file(char *word) {
+    char pathname[PATH_MAX];
+    if (getcwd(pathname, sizeof pathname) == NULL) {
+        perror("getcwd");
+        exit(1);
+    }
+    char file_path[strlen(pathname) + strlen(word) + 2];
+    strcpy(file_path, pathname);
+    strcat(file_path, "/");
+    strcat(file_path, word);
+    file_path[strlen(pathname) + strlen(word) + 1] = '\0';
+    
+    // Read a file 
+    struct stat s;
+    if (stat(file_path, &s) != 0) {
+        perror(file_path);
+        return false;
+    }
+    
+    if (S_ISREG(s.st_mode) == 0) {
+        return false;
+    }
+    
+    return true;
+}
+
+static void do_command(char **words, char *pathname) {
+    pid_t pid;
+    extern char **environ;
+        
+    // Count the words needed 
+    int count = 0;
+    while (words[count] != NULL) {
+        count++;
+    }
+        
+    // Place into one string 
+    char *command_argv[count + 1];
+    command_argv[0] = pathname;
+    int i = 1;
+    while (words[i] != NULL) {
+        command_argv[i] = words[i];
+        i++;
+    }
+    command_argv[i] = NULL;
+
+    if (posix_spawn(&pid, pathname, NULL, NULL, command_argv, environ) != 0) {
+        perror("spawn");
+        exit(1);
+    }
+
+    // Wait for spawned processes to finish
+    int exit_status;
+    if (waitpid(pid, &exit_status, 0) == -1) {
+        perror("waitpid");
+        exit(1);
+    }
+
+    if (!WIFEXITED(exit_status)) {
+        printf("Exited, status = %d\n", WEXITSTATUS(exit_status));
+        exit(1);
+    }
+    
+    printf("%s exit status was %d\n", pathname, exit_status);       
+    // Add to history
+    add_history(words);
+    
+    return;
+}
+
+// Records history
+static void add_history(char **words) {
+    // Get history
+    char *home = getenv("HOME");
+    char history[strlen(home) + 16];
+    strcpy(history, home);
+    strcat(history, "/.shuck_history");
+    
+    // Open and append to a file 
+    FILE *stream = fopen(history, "a+");
+    if (stream == NULL) {
+        perror(history);
+        return;
+    }
+
+    //Check if the file is empty 
+    fseek (stream, 0, SEEK_END);
+    long int size = ftell(stream);
+    
+    // Adding to history
+    if (size == 0) {
+        fprintf(stream, "0: ");
+        int i = 0;
+        while (words[i + 1] != NULL) {
+            fprintf(stream, "%s ", words[i]);
+            i++;
+        }
+        fprintf(stream, "%s\n", words[i]);
+    } else {
+        rewind(stream);
+        char line[MAX_LINE_CHARS];
+        while (fgets(line, MAX_LINE_CHARS, stream) != NULL);
+        char **pos_line = tokenize(line, " ", "");
+        int pos = atoi(pos_line[0]);
+        // Add the command to the file 
+        fprintf(stream, "%d: ", pos + 1);
+        int i = 0;
+        while (words[i + 1] != NULL) {
+            fprintf(stream, "%s ", words[i]);
+            i++;
+        }
+        fprintf(stream, "%s\n", words[i]);
+    }
+    
+    fclose(stream);
+
+    return;
+}
+
+// Prints last n commands
+static void print_history(int n) {
+    // Get history
+    char *home = getenv("HOME");
+    char history[strlen(home) + 16];
+    strcpy(history, home);
+    strcat(history, "/.shuck_history");
+    
+    // Open and read a file 
+    FILE *stream = fopen(history, "r");
+    if (stream == NULL) {
+        perror(history);
+        return;
+    }
+    
+    // Go to the end of the file, get last command number
+    char last_line[MAX_LINE_CHARS];
+    while (fgets(last_line, MAX_LINE_CHARS, stream) != NULL);
+    char **last_pos = tokenize(last_line, " ", "");
+    int pos = atoi(last_pos[0]) - n;
+    // Print last n commands 
+    rewind(stream);
+    char line[MAX_LINE_CHARS];
+    while (fgets(line, MAX_LINE_CHARS, stream) != NULL) {
+        char **pos_line = tokenize(line, " ", "");
+        if (atoi(pos_line[0]) > pos) {
+            printf("%s", line);
+        }
+    }
+    
+    fclose(stream);
+    
+    return;
+}
+
+static void execute_history(int n) {
+    // Get history
+    char *home = getenv("HOME");
+    char history[strlen(home) + 16];
+    strcpy(history, home);
+    strcat(history, "/.shuck_history");
+    
+    // Open and read a file 
+    FILE *stream = fopen(history, "r");
+    if (stream == NULL) {
+        perror(history);
+        return;
+    }
+    
+    extern char **environ;
+
+    char *pathp;
+    if ((pathp = getenv("PATH")) == NULL) {
+        pathp = DEFAULT_PATH;
+    }
+    char **path = tokenize(pathp, ":", "");
+    
+    if (n == -1) {
+        char last_line[MAX_LINE_CHARS];
+        while (fgets(last_line, MAX_LINE_CHARS, stream) != NULL);
+        int pos = 0;
+        while (last_line[pos] != ' ') {
+            pos++;
+        }
+        pos++;
+        char command_line[MAX_LINE_CHARS];
+        int i = 0;
+        while (last_line[i + pos] != '\0') {
+            command_line[i] = last_line[i + pos];
+            i++;
+        }
+        command_line[i - 1] = '\0';
+        char **words = tokenize(command_line, " ", "");
+        execute_command(words, path, environ);
+    } else {
+        char line[MAX_LINE_CHARS];
+        while (fgets(line, MAX_LINE_CHARS, stream) != NULL) {
+            char **words = tokenize(line, " ", "");
+            if (n == atoi(words[0])) {
+                int pos = 0;
+        while (line[pos] != ' ') {
+            pos++;
+        }
+        pos++;
+        char command_line[MAX_LINE_CHARS];
+        int i = 0;
+        while (line[i + pos] != '\0') {
+            command_line[i] = line[i + pos];
+            i++;
+        }
+        command_line[i - 1] = '\0';
+        char **command_words = tokenize(command_line, " ", "");
+                execute_command(command_words, path, environ);
+                break;
+            }
+        }
+    }
+    fclose(stream);
+    
+    return;
+}
+
+static char **glob_check(char **words) {
+    // Create a new array of strings 
+    // Size is current command
+    char **found_words = malloc(1 * sizeof(*found_words));
+    found_words[0] = malloc((strlen(words[0]) + 1) * sizeof(char));
+    // Allocate a copy of the token.
+    char *command = strndup(words[0], strlen(words[0]));
+    // Add this token
+    found_words[0] = command;
+
+    int i = 1;
+    int pos = 1;
+    int num_matches = 0;
+    // determine number of matches in total
+    while (words[i] != NULL) { // Loop through all the words other than the command
+        glob_t matches; 
+        int result = glob(words[i], GLOB_NOCHECK|GLOB_TILDE, NULL, &matches);
+        if (result != 0) { 
+            printf("glob returns %d\n", result);
+            exit(1);
+        } else {
+            num_matches += (int)matches.gl_pathc; // NUMBER OF MATCHES
+            found_words = realloc(found_words, ((num_matches + 1) * sizeof(*found_words)));
+            for (int c = 0; c < matches.gl_pathc; c++) {
+                found_words[pos] = malloc((strlen(matches.gl_pathv[c]) + 1) * sizeof(char));
+                char *found = strndup(matches.gl_pathv[c], strlen(matches.gl_pathv[c])); 
+                found_words[pos] = found;
+                pos++;
+            }
+        }
+        i++;
+    }
+    found_words = realloc(found_words, ((num_matches + 2) * sizeof(*found_words)));
+    found_words[num_matches + 1] = NULL;
+    return found_words;
+}
+
+static void input_file(char **words, char *pathname, int file) {
+    char filepath[PATH_MAX];        
+    if (getcwd(filepath, sizeof filepath) == NULL) {
+        perror("getcwd");
+        return;
+    }
+    strcat(filepath, "/");
+    strcat(filepath, words[file]);
+
+    // ID
+    pid_t pid;
+    extern char **environ;
+
+    posix_spawn_file_actions_t actions;
+    if (posix_spawn_file_actions_init(&actions) != 0) {
+        perror("posix_spawn_file_actions_init");
+        exit(1);
+    }
+
+    if (posix_spawn_file_actions_addopen(&actions, 2, filepath, O_RDONLY, 0644) != 0) {
+        perror("posix_spawn_file_actions_addopen");
+        exit(1);
+    }
+
+    if (posix_spawn_file_actions_adddup2(&actions, 1, 2) != 0) {
+        perror("posix_spawn_file_actions_adddup2");
+        exit(1);
+    }
+    
+    // Count the words needed 
+    int count = 1;
+    while (words[count] != NULL) {
+        count++;
+    }
+    
+    // Place into one string 
+    char *command_argv[count + 1];
+    command_argv[0] = pathname;
+    int i = 1;
+    int pos = 3;
+    while (words[pos] != NULL) {
+        command_argv[i] = words[pos];
+        i++;
+        pos++;
+    }
+    command_argv[i] = words[file];
+    command_argv[i + 1] = NULL;
+    
+    if (posix_spawn(&pid, pathname, &actions, NULL, command_argv, environ) != 0) {
+        perror("spawn");
+        exit(1);
+    }
+
+    int exit_status;
+    if (waitpid(pid, &exit_status, 0) == -1) {
+        perror("waitpid");
+        exit(1);
+    }
+    printf("%s exit status was %d\n", pathname, exit_status);
+
+    posix_spawn_file_actions_destroy(&actions);
+
+    return;
+} 
+
+static void output_file(char **words, char *pathname, int file, int mode) { 
+    char filepath[PATH_MAX];        
+    if (getcwd(filepath, sizeof filepath) == NULL) {
+        perror("getcwd");
+        return;
+    }
+    strcat(filepath, "/");
+    strcat(filepath, words[file]);
+
+    // ID
+    pid_t pid;
+    extern char **environ;
+
+    posix_spawn_file_actions_t actions;
+    if (posix_spawn_file_actions_init(&actions) != 0) {
+        perror("posix_spawn_file_actions_init");
+        exit(1);
+    }
+    
+    if (mode == 2) {
+        if (posix_spawn_file_actions_addopen(&actions, 1, filepath, O_WRONLY | O_CREAT, 0644) != 0) {
+        perror("posix_spawn_file_actions_addopen");
+        exit(1);
+        }
+    } else {
+       if (posix_spawn_file_actions_addopen(&actions, 1, filepath, O_WRONLY | O_APPEND, 0644) != 0) {
+        perror("posix_spawn_file_actions_addopen");
+        exit(1); 
+        }
+    }
+
+    if (posix_spawn_file_actions_adddup2(&actions, 1, 2) != 0) {
+        perror("posix_spawn_file_actions_adddup2");
+        exit(1);
+    }
+
+    
+    // Count the words needed 
+    int count = 0;
+    while (words[count + mode] != NULL) {
+        count++;
+    }
+        
+    // Place into one string 
+    char *command_argv[count + 1];
+    command_argv[0] = pathname;
+    int i = 1;
+    while (words[i + mode] != NULL) {
+        command_argv[i] = words[i];
+        i++;
+    }
+    command_argv[i] = NULL;
+
+    
+    if (posix_spawn(&pid, pathname, &actions, NULL, command_argv, environ) != 0) {
+        perror("spawn");
+        exit(1);
+    }
+
+    int exit_status;
+    if (waitpid(pid, &exit_status, 0) == -1) {
+        perror("waitpid");
+        exit(1);
+    }
+    printf("%s exit status was %d\n", pathname, exit_status);
+
+    posix_spawn_file_actions_destroy(&actions);
+
+    return;
+}
+
+//
+// Implement the `exit' shell built-in, which exits the shell.
+//
+// Synopsis: exit [exit-status]
+// Examples:
+//     % exit
+//     % exit 1
+//
+static void do_exit(char **words)
+{
+    assert(words != NULL);
+    assert(strcmp(words[0], "exit") == 0);
+
+    int exit_status = 0;
+
+    if (words[1] != NULL && words[2] != NULL) {
+        // { "exit", "word", "word", ... }
+        fprintf(stderr, "exit: too many arguments\n");
+
+    } else if (words[1] != NULL) {
+        // { "exit", something, NULL }
+        char *endptr;
+        exit_status = (int) strtol(words[1], &endptr, 10);
+        if (*endptr != '\0') {
+            fprintf(stderr, "exit: %s: numeric argument required\n", words[1]);
+        }
+    }
+
+    exit(exit_status);
+}
+
+
+//
+// Check whether this process can execute a file.  This function will be
+// useful while searching through the list of directories in the path to
+// find an executable file.
+//
+static int is_executable(char *pathname)
+{
+    struct stat s;
+    return
+        // does the file exist?
+        stat(pathname, &s) == 0 &&
+        // is the file a regular file?
+        S_ISREG(s.st_mode) &&
+        // can we execute it?
+        faccessat(AT_FDCWD, pathname, X_OK, AT_EACCESS) == 0;
+}
+
+
+//
+// Split a string 's' into pieces by any one of a set of separators.
+//
+// Returns an array of strings, with the last element being `NULL'.
+// The array itself, and the strings, are allocated with `malloc(3)';
+// the provided `free_token' function can deallocate this.
+//
+static char **tokenize(char *s, char *separators, char *special_chars)
+{
+    size_t n_tokens = 0;
+
+    // Allocate space for tokens.  We don't know how many tokens there
+    // are yet --- pessimistically assume that every single character
+    // will turn into a token.  (We fix this later.)
+    char **tokens = calloc((strlen(s) + 1), sizeof *tokens);
+    assert(tokens != NULL);
+
+    while (*s != '\0') {
+        // We are pointing at zero or more of any of the separators.
+        // Skip all leading instances of the separators.
+        s += strspn(s, separators);
+
+        // Trailing separators after the last token mean that, at this
+        // point, we are looking at the end of the string, so:
+        if (*s == '\0') {
+            break;
+        }
+
+        // Now, `s' points at one or more characters we want to keep.
+        // The number of non-separator characters is the token length.
+        size_t length = strcspn(s, separators);
+        size_t length_without_specials = strcspn(s, special_chars);
+        if (length_without_specials == 0) {
+            length_without_specials = 1;
+        }
+        if (length_without_specials < length) {
+            length = length_without_specials;
+        }
+
+        // Allocate a copy of the token.
+        char *token = strndup(s, length);
+        assert(token != NULL);
+        s += length;
+
+        // Add this token.
+        tokens[n_tokens] = token;
+        n_tokens++;
+    }
+
+    // Add the final `NULL'.
+    tokens[n_tokens] = NULL;
+
+    // Finally, shrink our array back down to the correct size.
+    tokens = realloc(tokens, (n_tokens + 1) * sizeof *tokens);
+    assert(tokens != NULL);
+
+    return tokens;
+}
+
+
+//
+// Free an array of strings as returned by `tokenize'.
+//
+static void free_tokens(char **tokens)
+{
+    for (int i = 0; tokens[i] != NULL; i++) {
+        free(tokens[i]);
+    }
+    free(tokens);
+}
